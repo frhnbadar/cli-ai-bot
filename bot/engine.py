@@ -1,11 +1,12 @@
-from bot.tools import TOOLS
-from bot.tools import TOOL_INFO
+from bot.tools import TOOLS, TOOL_INFO
 from bot.explain import ReasoningTrace
 from bot.skills import list_skills
+
 
 class OfflineAIEngine:
     def __init__(self):
         self.trace = ReasoningTrace()
+        self.learned_rules = {}
 
     def respond(self, user_input):
         self.trace.clear()
@@ -14,7 +15,19 @@ class OfflineAIEngine:
 
         self.trace.add("Input received and normalized")
 
-        # --- COMMANDS ---
+        # ---------- LEARNING ----------
+        if lower.startswith("/learn"):
+            self.trace.add("Learning new rule")
+            parts = text.split(maxsplit=2)
+
+            if len(parts) < 3:
+                return "Usage: /learn <keyword> <response>"
+
+            key, value = parts[1].lower(), parts[2]
+            self.learned_rules[key] = value
+            return f"Learned new rule: {key}"
+
+        # ---------- COMMANDS ----------
         if lower == "/skills":
             self.trace.add("User requested skill list")
             return list_skills()
@@ -29,21 +42,24 @@ class OfflineAIEngine:
             tool = parts[1]
             arg = parts[2] if len(parts) > 2 else ""
 
-            # --- TOOL HELP ---
             if tool.lower() == "help":
                 self.trace.add("Tool help requested")
                 if not TOOL_INFO:
                     return "No plugins loaded."
                 return "\n".join(f"{name}: {desc}" for name, desc in TOOL_INFO.items())
 
-            # --- EXECUTE TOOL ---
             if tool in TOOLS:
                 self.trace.add(f"Executing tool: {tool}")
                 return TOOLS[tool](arg)
 
             return f"Tool '{tool}' not found."
 
-        # --- INTENT DETECTION ---
+        # ---------- LEARNED MEMORY ----------
+        if lower in self.learned_rules:
+            self.trace.add("Matched learned rule")
+            return self.learned_rules[lower]
+
+        # ---------- INTENT DETECTION ----------
         if any(greet in lower for greet in ["hi", "hello", "hey"]):
             self.trace.add("Greeting intent detected")
             return (
@@ -60,25 +76,22 @@ class OfflineAIEngine:
             return (
                 "Available commands:\n"
                 "/skills – list AI capabilities\n"
+                "/learn <key> <response> – teach the AI\n"
                 "/tool <name> – execute a tool\n"
-                "/tool help – list all tools with description\n"
+                "/tool help – list tools\n"
                 "/explain – show reasoning trace\n"
-                "/replay – replay session\n"
                 "/exit – quit"
             )
 
-        if "time" in lower:
+        if "time" in lower and "time" in TOOLS:
             self.trace.add("Time-related query detected")
-            if "time" in TOOLS:
-                return TOOLS["time"]("")
-            else:
-                return "Time tool not loaded."
+            return TOOLS["time"]("")
 
         if any(word in lower for word in ["calculate", "calc", "+", "-", "*", "/"]):
             self.trace.add("Math intent detected")
             return "Use: /tool calc <expression>"
 
-        # --- SAFE FALLBACK ---
+        # ---------- FALLBACK ----------
         self.trace.add("No intent matched, safe fallback used")
         return (
             "I understand your input, but I don't have a specific skill for it yet.\n"
